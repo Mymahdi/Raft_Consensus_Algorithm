@@ -1,2 +1,6 @@
-# Raft_Consensus_Algorithm
-implementation of Raft consensus algorithm 
+# 🗂️ Raft Consensus Algorithm
+
+- Mohammad Saeid Sedighi
+- Mahdi Khesali
+- Mohammad Hosein Motaee
+
