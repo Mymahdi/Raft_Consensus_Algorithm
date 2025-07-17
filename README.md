@@ -1,6 +1,6 @@
 # 🗂️ Raft Consensus Algorithm
 
-## Part 3A: Leader Election
+## Part A: Leader Election
 
 ## Objective
 
@@ -106,7 +106,7 @@ All subtests for Part 3A passed, confirming the correctness and stability of the
 ---
 ---
 
-## Raft Part 3B: Log Replication
+## Part B: Log Replication
 
 ## Objective
 
@@ -197,4 +197,88 @@ Test (3B): lots of agreement... Passed
 ```
 
 ---
+---
 
+## Part C : Log Replication and Commitment
+
+## Objective
+
+The goal of Part 3C is to implement **log replication** and **commitment** in the Raft consensus algorithm. This includes:
+- Appending new log entries from the leader to followers.
+- Ensuring logs are consistent across servers.
+- Committing log entries once a majority has acknowledged them.
+- Applying committed entries to the state machine in order.
+
+---
+
+## Key Concepts
+
+- **Log Replication**: Leaders send `AppendEntries` RPCs to followers with log entries.
+- **Consistency Check**: Followers reject inconsistent entries and provide hints (`XTerm`, `XIndex`, `XLen`) for log correction.
+- **Commit Index**: Leader advances the `commitIndex` when a log entry is replicated on a majority of servers.
+- **Apply Channel**: Committed entries are sent via `applyCh` to the service for application to the state machine.
+
+---
+
+## Implementation Overview
+
+### `Start(command interface{})`
+Leaders append a new command to their local log, persist it, and trigger a broadcast to replicate it:
+```go
+entry := LogEntry{Term: rf.currentTerm, Command: command}
+rf.log = append(rf.log, entry)
+rf.persist()
+go rf.broadcastAppendEntries()
+```
+
+### `broadcastAppendEntries()`
+Leaders send `AppendEntries` to all peers. The method includes:
+- Matching the follower's `PrevLogIndex` and `PrevLogTerm`
+- Sending new log entries starting from `nextIndex[peer]`
+- Handling failures with backtracking using `XTerm`, `XIndex`, and `XLen`
+- Advancing `matchIndex[]` and `nextIndex[]` on success
+
+Majority commit check:
+```go
+for N := len(rf.log) - 1; N > rf.commitIndex; N-- {
+    if rf.log[N].Term != rf.currentTerm {
+        continue
+    }
+    count := 1
+    for j := range rf.peers {
+        if rf.matchIndex[j] >= N {
+            count++
+        }
+    }
+    if count > len(rf.peers)/2 {
+        rf.commitIndex = N
+        go rf.applyEntries()
+        break
+    }
+}
+```
+
+### `AppendEntries(...)`
+Followers validate the `PrevLogIndex` and `PrevLogTerm`. If mismatched, they return failure with conflict information (`XTerm`, `XIndex`, `XLen`). Otherwise:
+- Conflicting entries are truncated
+- New entries are appended
+- `commitIndex` is updated and `applyEntries()` is triggered if needed
+
+### Conflict Optimization
+To reduce backtracking, the reply includes:
+- `XTerm`: Term of conflicting entry
+- `XIndex`: First index of `XTerm`
+- `XLen`: Length of follower’s log
+
+### `applyEntries()`
+Applies committed entries to the state machine via `applyCh`:
+```go
+for rf.lastApplied < rf.commitIndex {
+    next := rf.lastApplied + 1
+    msg := raftapi.ApplyMsg{CommandValid: true, Command: rf.log[next].Command, CommandIndex: next}
+    rf.applyCh <- msg
+    rf.lastApplied = next
+}
+```
+
+---
